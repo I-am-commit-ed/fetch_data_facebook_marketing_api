@@ -1,6 +1,6 @@
 """
 API Client for interacting with Meta Ads API.
-Handles authentication, requests, and rate limiting.
+Handles authentication, requests, rate limiting, and error handling.
 """
 
 import requests
@@ -8,8 +8,40 @@ import time
 import json
 from typing import Dict, List, Any, Optional
 from datetime import datetime, timedelta
+import logging
+from functools import wraps
 
-from ..config.api_config import BASE_URL, DEFAULT_PAGE_SIZE, ATTRIBUTION_WINDOWS
+from ..config.api_config import (
+    BASE_URL,
+    DEFAULT_PAGE_SIZE,
+    ATTRIBUTION_WINDOWS,
+    COMMON_METRICS,
+    CONVERSION_METRICS
+)
+
+def retry_with_backoff(max_retries: int = 3, initial_delay: float = 5.0):
+    """Retry decorator with exponential backoff"""
+    def decorator(func):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            delay = initial_delay
+            last_exception = None
+            
+            for retry in range(max_retries):
+                try:
+                    return func(*args, **kwargs)
+                except Exception as e:
+                    last_exception = e
+                    if "rate limit" in str(e).lower():
+                        sleep_time = delay * (2 ** retry)
+                        logging.warning(f"Rate limit hit. Retrying in {sleep_time} seconds...")
+                        time.sleep(sleep_time)
+                        continue
+                    raise e
+            
+            raise last_exception
+        return wrapper
+    return decorator
 
 class MetaAdsAPIClient:
     def __init__(self, access_token: str, account_id: str):
@@ -24,17 +56,49 @@ class MetaAdsAPIClient:
         self.account_id = account_id.replace('act_', '')
         self.rate_limit_remaining = 100
         self.last_request_time = 0
+        self.setup_logging()
+
+    def setup_logging(self):
+        """Configure logging for the API client"""
+        self.logger = logging.getLogger('meta_ads_api')
+        self.logger.setLevel(logging.INFO)
+        
+        # Create handlers if they don't exist
+        if not self.logger.handlers:
+            # Console handler
+            console_handler = logging.StreamHandler()
+            console_format = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+            console_handler.setFormatter(console_format)
+            self.logger.addHandler(console_handler)
+            
+            # File handler
+            file_handler = logging.FileHandler('meta_ads_api.log')
+            file_format = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+            file_handler.setFormatter(file_format)
+            self.logger.addHandler(file_handler)
 
     def _handle_rate_limiting(self) -> None:
-        """Basic rate limiting handler"""
+        """Enhanced rate limiting handler with exponential backoff"""
         current_time = time.time()
         time_since_last_request = current_time - self.last_request_time
         
-        if time_since_last_request < 1:  # Minimum 1 second between requests
-            time.sleep(1 - time_since_last_request)
+        # Minimum wait time between requests
+        min_wait_time = 2.0
+        
+        if time_since_last_request < min_wait_time:
+            sleep_time = min_wait_time - time_since_last_request
+            self.logger.debug(f"Rate limiting: sleeping for {sleep_time:.2f} seconds")
+            time.sleep(sleep_time)
         
         self.last_request_time = time.time()
 
+    def _mask_sensitive_data(self, text: str) -> str:
+        """Mask sensitive information like access tokens"""
+        if self.access_token in text:
+            return text.replace(self.access_token, '****')
+        return text
+
+    @retry_with_backoff()
     def make_request(
         self, 
         endpoint: str, 
@@ -57,16 +121,28 @@ class MetaAdsAPIClient:
         """
         self._handle_rate_limiting()
         
-        params["access_token"] = self.access_token
-        url = f"{BASE_URL}/{endpoint}"
+        # Create a copy of params for logging (with masked sensitive data)
+        safe_params = params.copy()
+        if 'access_token' in safe_params:
+            safe_params['access_token'] = '****'
+        
+        self.logger.info(f"Making {method} request to {endpoint}")
+        self.logger.debug(f"Parameters: {safe_params}")
         
         try:
+            params["access_token"] = self.access_token
+            url = f"{BASE_URL}/{endpoint}"
+            
             if method == "GET":
-                response = requests.get(url=url, params=params)
+                response = requests.get(url=url, params=params, timeout=30)
             elif method == "POST":
-                response = requests.post(url=url, json=params)
+                response = requests.post(url=url, json=params, timeout=30)
             else:
                 raise ValueError(f"Unsupported HTTP method: {method}")
+
+            # Handle rate limiting errors
+            if response.status_code == 429 or "rate limit" in response.text.lower():
+                raise Exception("Rate limit reached")
 
             response.raise_for_status()
             
@@ -77,20 +153,26 @@ class MetaAdsAPIClient:
             paging = data.get('paging', {})
             
             while 'next' in paging:
+                self.logger.debug("Fetching next page of results")
                 self._handle_rate_limiting()
-                response = requests.get(paging['next'])
+                response = requests.get(paging['next'], timeout=30)
                 response.raise_for_status()
                 
                 next_data = response.json()
                 all_data.extend(next_data.get('data', []))
                 paging = next_data.get('paging', {})
             
+            self.logger.info(f"Successfully retrieved {len(all_data)} records")
             return all_data
             
         except requests.exceptions.RequestException as e:
-            print(f"API Error: {str(e)}")
+            error_msg = self._mask_sensitive_data(str(e))
+            self.logger.error(f"API Error: {error_msg}")
+            
             if hasattr(e, 'response') and e.response is not None:
-                print(f"Response: {e.response.text}")
+                response_text = self._mask_sensitive_data(e.response.text)
+                self.logger.error(f"Response: {response_text}")
+            
             raise
 
     def get_insights(
@@ -98,7 +180,9 @@ class MetaAdsAPIClient:
         object_id: str,
         fields: List[str],
         attribution_window: str = "default",
-        level: str = "campaign"
+        level: str = "campaign",
+        date_preset: str = None,
+        time_increment: int = 1
     ) -> List[Dict]:
         """
         Fetch insights with specific parameters.
@@ -108,45 +192,79 @@ class MetaAdsAPIClient:
             fields: List of fields to retrieve
             attribution_window: Attribution window to use
             level: Data level (campaign, adset, or ad)
+            date_preset: Predefined date range (e.g., 'last_30d')
+            time_increment: Time breakdown in days
             
         Returns:
             List of insight data dictionaries
         """
         endpoint = f"{object_id}/insights"
         
+        # Get attribution window settings
+        attribution_settings = ATTRIBUTION_WINDOWS.get(attribution_window, {})
+        
+        # Set up date range
+        if date_preset:
+            time_range_params = {"date_preset": date_preset}
+        else:
+            # Default to last 30 days
+            end_date = datetime.now()
+            start_date = end_date - timedelta(days=30)
+            time_range_params = {
+                "time_range": json.dumps({
+                    "since": start_date.strftime("%Y-%m-%d"),
+                    "until": end_date.strftime("%Y-%m-%d")
+                })
+            }
+        
         base_params = {
             "level": level,
             "fields": ",".join(fields),
-            **ATTRIBUTION_WINDOWS[attribution_window]
+            "limit": 1000,
+            "time_increment": time_increment,
+            **time_range_params,
+            **attribution_settings
         }
-        
-        # Add time range for last 90 days
-        end_date = datetime.now()
-        start_date = end_date - timedelta(days=90)
-        
-        base_params["time_range"] = {
-            "since": start_date.strftime("%Y-%m-%d"),
-            "until": end_date.strftime("%Y-%m-%d")
-        }
-        
-        return self.make_request(endpoint, base_params)
 
-    def batch_request(self, requests: List[Dict[str, Any]]) -> List[Dict]:
+        try:
+            return self.make_request(endpoint, base_params)
+        except Exception as e:
+            self.logger.error(f"Error fetching insights for {object_id}: {str(e)}")
+            return []
+
+    def batch_request(
+        self,
+        requests: List[Dict[str, Any]],
+        batch_size: int = 50
+    ) -> List[Dict]:
         """
         Make batch request to the API.
         
         Args:
             requests: List of request specifications
+            batch_size: Maximum number of requests per batch
             
         Returns:
             List of response data dictionaries
         """
-        batch_params = {
-            "batch": json.dumps(requests),
-            "include_headers": "false"
-        }
+        self.logger.info(f"Making batch request with {len(requests)} requests")
         
-        return self.make_request("", batch_params, method="POST")
+        results = []
+        for i in range(0, len(requests), batch_size):
+            batch = requests[i:i + batch_size]
+            batch_params = {
+                "batch": json.dumps(batch),
+                "include_headers": "false"
+            }
+            
+            batch_results = self.make_request("", batch_params, method="POST")
+            results.extend(batch_results)
+            
+            # Add delay between batches
+            if i + batch_size < len(requests):
+                time.sleep(2)
+        
+        return results
 
     def validate_access(self) -> bool:
         """
@@ -156,10 +274,45 @@ class MetaAdsAPIClient:
             bool: True if credentials are valid
         """
         try:
+            self.logger.info("Validating API access")
             endpoint = f"act_{self.account_id}"
-            params = {"fields": "name"}
+            params = {"fields": "name,account_status,business_name,currency,timezone_name"}
             
             response = self.make_request(endpoint, params)
+            self.logger.info("API access validation successful")
             return True
-        except:
+            
+        except Exception as e:
+            self.logger.error(f"API access validation failed: {str(e)}")
             return False
+
+    def get_account_info(self) -> Dict:
+        """
+        Get basic information about the ad account.
+        
+        Returns:
+            Dictionary containing account information
+        """
+        try:
+            self.logger.info("Fetching account information")
+            endpoint = f"act_{self.account_id}"
+            params = {
+                "fields": [
+                    "name",
+                    "account_status",
+                    "business_name",
+                    "currency",
+                    "timezone_name",
+                    "spend_cap",
+                    "amount_spent",
+                    "balance"
+                ]
+            }
+            
+            response = self.make_request(endpoint, params)
+            self.logger.info("Successfully retrieved account information")
+            return response[0] if response else {}
+            
+        except Exception as e:
+            self.logger.error(f"Failed to fetch account information: {str(e)}")
+            raise

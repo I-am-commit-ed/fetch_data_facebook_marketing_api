@@ -1,6 +1,5 @@
 """
 Fetcher module for Meta Ads data retrieval.
-Provides classes for fetching campaign, ad set, and ad data.
 """
 
 from .base import BaseFetcher

@@ -6,7 +6,12 @@ from typing import Dict, List, Any
 import pandas as pd
 
 from .base import BaseFetcher
-from ..config.api_config import CAMPAIGN_FIELDS, COMMON_METRICS, CONVERSION_METRICS
+from ..config.api_config import (
+    CAMPAIGN_FIELDS,
+    COMMON_METRICS,
+    CONVERSION_METRICS,
+    ATTRIBUTION_WINDOWS
+)
 
 class CampaignFetcher(BaseFetcher):
     def fetch_data(self) -> List[Dict]:
@@ -31,7 +36,7 @@ class CampaignFetcher(BaseFetcher):
             campaign_id: Campaign identifier
             attribution_window: Attribution window to use
         """
-        fields = COMMON_METRICS + CONVERSION_METRICS + [
+        fields = COMMON_METRICS + [
             "campaign_name",
             "objective",
             "buying_type"
