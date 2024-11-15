@@ -1,5 +1,9 @@
-from datetime import datetime, timedelta
+"""
+API Configuration settings for Meta Ads API
+"""
+
 from typing import Dict, List
+from datetime import datetime, timedelta
 
 # API Configuration
 API_VERSION = "v18.0"
@@ -64,33 +68,7 @@ ENGAGEMENT_METRICS = [
     "page_engagement"
 ]
 
-# Action Types for Breakdown
-ACTION_TYPES = [
-    "purchase",
-    "add_to_cart",
-    "initiate_checkout",
-    "landing_page_view",
-    "page_view",
-    "view_content",
-    "complete_registration"
-]
-
-# Breakdowns
-BREAKDOWNS = {
-    "time": ["day", "week", "month"],
-    "demographics": ["age", "gender", "country"],
-    "placement": ["publisher_platform", "platform_position"]
-}
-
-# Export Configuration
-EXPORT_PATH = "exports"
-FILE_TYPES = {
-    "campaigns": ["daily", "weekly", "monthly"],
-    "adsets": ["daily", "weekly", "monthly"],
-    "ads": ["daily", "weekly", "monthly"]
-}
-
-# Campaign Fields
+# API Field Configurations
 CAMPAIGN_FIELDS = [
     "id",
     "name",
@@ -105,7 +83,6 @@ CAMPAIGN_FIELDS = [
     "special_ad_categories"
 ]
 
-# Ad Set Fields
 ADSET_FIELDS = [
     "id",
     "name",
@@ -123,7 +100,6 @@ ADSET_FIELDS = [
     "end_time"
 ]
 
-# Ad Fields
 AD_FIELDS = [
     "id",
     "name",
@@ -137,7 +113,6 @@ AD_FIELDS = [
     "updated_time"
 ]
 
-# Creative Fields
 CREATIVE_FIELDS = [
     "id",
     "name",
@@ -152,3 +127,10 @@ CREATIVE_FIELDS = [
     "image_hash",
     "platform_customizations"
 ]
+
+# Breakdowns
+BREAKDOWNS = {
+    "time": ["day", "week", "month"],
+    "demographics": ["age", "gender", "country"],
+    "placement": ["publisher_platform", "platform_position"]
+}

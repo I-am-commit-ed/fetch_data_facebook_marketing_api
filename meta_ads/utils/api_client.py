@@ -1,18 +1,31 @@
+"""
+API Client for interacting with Meta Ads API.
+Handles authentication, requests, and rate limiting.
+"""
+
 import requests
-from typing import Dict, List, Any, Optional
 import time
-from datetime import datetime, timedelta
 import json
-from ..config import BASE_URL, DEFAULT_PAGE_SIZE
+from typing import Dict, List, Any, Optional
+from datetime import datetime, timedelta
+
+from ..config.api_config import BASE_URL, DEFAULT_PAGE_SIZE, ATTRIBUTION_WINDOWS
 
 class MetaAdsAPIClient:
     def __init__(self, access_token: str, account_id: str):
+        """
+        Initialize the Meta Ads API client.
+        
+        Args:
+            access_token: Meta Ads API access token
+            account_id: Meta Ads account ID
+        """
         self.access_token = access_token
         self.account_id = account_id.replace('act_', '')
         self.rate_limit_remaining = 100
         self.last_request_time = 0
 
-    def _handle_rate_limiting(self):
+    def _handle_rate_limiting(self) -> None:
         """Basic rate limiting handler"""
         current_time = time.time()
         time_since_last_request = current_time - self.last_request_time
@@ -28,7 +41,20 @@ class MetaAdsAPIClient:
         params: Dict[str, Any], 
         method: str = "GET"
     ) -> List[Dict]:
-        """Make API request with error handling and pagination"""
+        """
+        Make API request with error handling and pagination.
+        
+        Args:
+            endpoint: API endpoint to call
+            params: Query parameters
+            method: HTTP method to use
+            
+        Returns:
+            List of response data dictionaries
+            
+        Raises:
+            requests.exceptions.RequestException: If API request fails
+        """
         self._handle_rate_limiting()
         
         params["access_token"] = self.access_token
@@ -71,23 +97,50 @@ class MetaAdsAPIClient:
         self,
         object_id: str,
         fields: List[str],
-        params: Dict[str, Any],
+        attribution_window: str = "default",
         level: str = "campaign"
     ) -> List[Dict]:
-        """Fetch insights with specific parameters"""
+        """
+        Fetch insights with specific parameters.
+        
+        Args:
+            object_id: ID of the object to get insights for
+            fields: List of fields to retrieve
+            attribution_window: Attribution window to use
+            level: Data level (campaign, adset, or ad)
+            
+        Returns:
+            List of insight data dictionaries
+        """
         endpoint = f"{object_id}/insights"
         
         base_params = {
             "level": level,
-            "fields": ",".join(fields)
+            "fields": ",".join(fields),
+            **ATTRIBUTION_WINDOWS[attribution_window]
         }
         
-        params.update(base_params)
+        # Add time range for last 90 days
+        end_date = datetime.now()
+        start_date = end_date - timedelta(days=90)
         
-        return self.make_request(endpoint, params)
+        base_params["time_range"] = {
+            "since": start_date.strftime("%Y-%m-%d"),
+            "until": end_date.strftime("%Y-%m-%d")
+        }
+        
+        return self.make_request(endpoint, base_params)
 
     def batch_request(self, requests: List[Dict[str, Any]]) -> List[Dict]:
-        """Make batch request to the API"""
+        """
+        Make batch request to the API.
+        
+        Args:
+            requests: List of request specifications
+            
+        Returns:
+            List of response data dictionaries
+        """
         batch_params = {
             "batch": json.dumps(requests),
             "include_headers": "false"
@@ -96,7 +149,12 @@ class MetaAdsAPIClient:
         return self.make_request("", batch_params, method="POST")
 
     def validate_access(self) -> bool:
-        """Validate API access and credentials"""
+        """
+        Validate API access and credentials.
+        
+        Returns:
+            bool: True if credentials are valid
+        """
         try:
             endpoint = f"act_{self.account_id}"
             params = {"fields": "name"}

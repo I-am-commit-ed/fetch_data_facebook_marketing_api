@@ -1,10 +1,23 @@
+"""
+Metric calculator for processing Meta Ads data.
+Provides methods for calculating various performance metrics.
+"""
+
 from typing import Dict, List, Any
 from datetime import datetime, timedelta
 
 class MetricCalculator:
     @staticmethod
     def calculate_basic_metrics(data: Dict[str, Any]) -> Dict[str, float]:
-        """Calculate basic metrics from raw data"""
+        """
+        Calculate basic metrics from raw data.
+        
+        Args:
+            data: Raw metric data from API
+            
+        Returns:
+            Dictionary of calculated basic metrics
+        """
         metrics = {}
         
         # Frequency
@@ -27,14 +40,28 @@ class MetricCalculator:
 
     @staticmethod
     def calculate_conversion_metrics(data: Dict[str, Any]) -> Dict[str, float]:
-        """Calculate conversion-related metrics"""
+        """
+        Calculate conversion-related metrics.
+        
+        Args:
+            data: Raw metric data from API
+            
+        Returns:
+            Dictionary of calculated conversion metrics
+        """
         metrics = {}
         spend = float(data.get('spend', 0))
         
         # Get conversion values
-        purchases = float(data.get('actions', {}).get('purchase', 0))
-        adds_to_cart = float(data.get('actions', {}).get('add_to_cart', 0))
-        checkouts = float(data.get('actions', {}).get('initiate_checkout', 0))
+        actions = data.get('actions', [])
+        action_values = {
+            action['action_type']: float(action['value'])
+            for action in actions
+        }
+        
+        purchases = action_values.get('purchase', 0)
+        adds_to_cart = action_values.get('add_to_cart', 0)
+        checkouts = action_values.get('initiate_checkout', 0)
         
         # Calculate conversion rates
         impressions = float(data.get('impressions', 0))
@@ -57,7 +84,15 @@ class MetricCalculator:
 
     @staticmethod
     def calculate_video_metrics(data: Dict[str, Any]) -> Dict[str, float]:
-        """Calculate video-specific metrics"""
+        """
+        Calculate video-specific metrics.
+        
+        Args:
+            data: Raw metric data from API
+            
+        Returns:
+            Dictionary of calculated video metrics
+        """
         metrics = {}
         
         video_views = float(data.get('video_plays', 0))
@@ -81,7 +116,15 @@ class MetricCalculator:
 
     @staticmethod
     def calculate_engagement_metrics(data: Dict[str, Any]) -> Dict[str, float]:
-        """Calculate engagement metrics"""
+        """
+        Calculate engagement metrics.
+        
+        Args:
+            data: Raw metric data from API
+            
+        Returns:
+            Dictionary of calculated engagement metrics
+        """
         metrics = {}
         impressions = float(data.get('impressions', 0))
         
@@ -103,7 +146,15 @@ class MetricCalculator:
 
     @staticmethod
     def aggregate_metrics(metrics_list: List[Dict[str, float]]) -> Dict[str, float]:
-        """Aggregate metrics across multiple periods"""
+        """
+        Aggregate metrics across multiple periods.
+        
+        Args:
+            metrics_list: List of metric dictionaries to aggregate
+            
+        Returns:
+            Dictionary of aggregated metrics
+        """
         aggregated = {}
         count = len(metrics_list)
         
@@ -133,7 +184,16 @@ class MetricCalculator:
         current_period: Dict[str, float],
         previous_period: Dict[str, float]
     ) -> Dict[str, float]:
-        """Calculate changes between two periods"""
+        """
+        Calculate changes between two periods.
+        
+        Args:
+            current_period: Current period metrics
+            previous_period: Previous period metrics
+            
+        Returns:
+            Dictionary of metric changes
+        """
         changes = {}
         
         for metric, current_value in current_period.items():
