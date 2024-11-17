@@ -54,40 +54,41 @@ class CampaignFetcher(BaseFetcher):
         campaign_data: List[Dict],
         attribution_window: str = "default"
     ) -> pd.DataFrame:
-        """
-        Process campaign data with insights.
-        
-        Args:
-            campaign_data: List of campaign dictionaries
-            attribution_window: Attribution window to use
-        """
+        """Process campaign data with insights."""
         processed_data = []
-
-        for campaign in campaign_data:
+        
+        # Filter for active or recently active campaigns
+        active_campaigns = [
+            campaign for campaign in campaign_data 
+            if campaign.get("status") in ["ACTIVE", "PAUSED"]
+        ]
+        
+        for campaign in active_campaigns:
             campaign_id = campaign["id"]
             
             # Fetch insights
             insights = self.fetch_campaign_insights(campaign_id, attribution_window)
-
-            # Process metrics for each day
-            for insight in insights:
-                metrics = {
-                    **self.metric_calculator.calculate_basic_metrics(insight),
-                    **self.metric_calculator.calculate_conversion_metrics(insight)
-                }
-
-                processed_insight = {
-                    "campaign_id": campaign_id,
-                    "campaign_name": campaign.get("name"),
-                    "objective": campaign.get("objective"),
-                    "buying_type": campaign.get("buying_type"),
-                    "status": campaign.get("status"),
-                    "date": insight.get("date_start"),
-                    **metrics
-                }
-                processed_data.append(processed_insight)
-
-        return pd.DataFrame(processed_data)
+            
+            # Only process if we have insights
+            if insights:
+                for insight in insights:
+                    metrics = {
+                        **self.metric_calculator.calculate_basic_metrics(insight),
+                        **self.metric_calculator.calculate_conversion_metrics(insight)
+                    }
+                    
+                    processed_insight = {
+                        "campaign_id": campaign_id,
+                        "campaign_name": campaign.get("name"),
+                        "objective": campaign.get("objective"),
+                        "buying_type": campaign.get("buying_type"),
+                        "status": campaign.get("status"),
+                        "date": insight.get("date_start"),
+                        **metrics
+                    }
+                    processed_data.append(processed_insight)
+        
+        return pd.DataFrame(processed_data) if processed_data else pd.DataFrame()
 
     def get_campaign_performance(
         self,

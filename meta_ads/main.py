@@ -5,6 +5,14 @@ from meta_ads.utils.api_client import MetaAdsAPIClient
 from meta_ads.fetchers.campaign_fetcher import CampaignFetcher
 from meta_ads.fetchers.adset_fetcher import AdSetFetcher
 from meta_ads.fetchers.ad_fetcher import AdFetcher
+from meta_ads.config import (
+    EXPORT_DIR,
+    CAMPAIGN_EXPORT_DIR,
+    ADSET_EXPORT_DIR,
+    AD_EXPORT_DIR
+)
+import time
+import json
 
 class MetaAdsDataManager:
     def __init__(self):
@@ -14,8 +22,11 @@ class MetaAdsDataManager:
         self.adset_fetcher = AdSetFetcher(self.api_client)
         self.ad_fetcher = AdFetcher(self.api_client)
         
-        # Create output directories
-        self.create_output_directories()
+        # Use paths from config
+        self.output_dir = EXPORT_DIR
+        self.campaign_dir = CAMPAIGN_EXPORT_DIR
+        self.adset_dir = ADSET_EXPORT_DIR
+        self.ad_dir = AD_EXPORT_DIR
 
     def setup_environment(self):
         """Setup environment variables"""
@@ -26,34 +37,26 @@ class MetaAdsDataManager:
         
         if not self.access_token or not self.account_id:
             raise ValueError("Missing required environment variables")
-        
-        # Setup directories
-        self.base_dir = Path(__file__).parent
-        self.output_dir = self.base_dir / 'exports'
-        self.campaign_dir = self.output_dir / 'campaigns'
-        self.adset_dir = self.output_dir / 'adsets'
-        self.ad_dir = self.output_dir / 'ads'
-
-    def create_output_directories(self):
-        """Create necessary output directories"""
-        directories = [self.output_dir, self.campaign_dir, self.adset_dir, self.ad_dir]
-        for directory in directories:
-            directory.mkdir(parents=True, exist_ok=True)
 
     def fetch_all_data(self):
         """Run the complete data fetch process"""
         try:
-            # Fetch and save campaign data
+            # Fetch and export campaign data
             print("\nFetching campaign data...")
             campaigns = self.campaign_fetcher.get_campaign_performance()
+            self.campaign_fetcher.export_campaign_data(campaigns, str(self.campaign_dir))
             
-            # Fetch and save ad set data
+            time.sleep(30)  # Increased delay between different data types
+            
             print("\nFetching ad set data...")
             adsets = self.adset_fetcher.get_adset_performance()
+            self.adset_fetcher.export_adset_data(adsets, str(self.adset_dir))
             
-            # Fetch and save ad data
+            time.sleep(30)
+            
             print("\nFetching ad data...")
             ads = self.ad_fetcher.get_ad_performance()
+            self.ad_fetcher.export_ad_data(ads, str(self.ad_dir))
             
             print("\nData fetch completed successfully!")
             

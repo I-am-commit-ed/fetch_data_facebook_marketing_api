@@ -80,15 +80,24 @@ class MetaAdsAPIClient:
     def _handle_rate_limiting(self) -> None:
         """Enhanced rate limiting handler with exponential backoff"""
         current_time = time.time()
-        time_since_last_request = current_time - self.last_request_time
         
-        # Minimum wait time between requests
-        min_wait_time = 2.0
+        # Calculate wait time with exponential backoff
+        if not hasattr(self, '_retry_count'):
+            self._retry_count = 0
         
-        if time_since_last_request < min_wait_time:
-            sleep_time = min_wait_time - time_since_last_request
+        base_wait_time = 5.0
+        wait_time = base_wait_time * (2 ** self._retry_count)
+        max_wait_time = 300  # 5 minutes maximum
+        
+        wait_time = min(wait_time, max_wait_time)
+        
+        if current_time - self.last_request_time < wait_time:
+            sleep_time = wait_time - (current_time - self.last_request_time)
             self.logger.debug(f"Rate limiting: sleeping for {sleep_time:.2f} seconds")
             time.sleep(sleep_time)
+            self._retry_count += 1
+        else:
+            self._retry_count = 0
         
         self.last_request_time = time.time()
 
@@ -179,58 +188,22 @@ class MetaAdsAPIClient:
         self,
         object_id: str,
         fields: List[str],
-        attribution_window: str = "default",
-        level: str = "campaign",
-        date_preset: str = None,
-        time_increment: int = 1
+        attribution_window: str,
+        level: str
     ) -> List[Dict]:
-        """
-        Fetch insights with specific parameters.
-        
-        Args:
-            object_id: ID of the object to get insights for
-            fields: List of fields to retrieve
-            attribution_window: Attribution window to use
-            level: Data level (campaign, adset, or ad)
-            date_preset: Predefined date range (e.g., 'last_30d')
-            time_increment: Time breakdown in days
-            
-        Returns:
-            List of insight data dictionaries
-        """
-        endpoint = f"{object_id}/insights"
-        
-        # Get attribution window settings
-        attribution_settings = ATTRIBUTION_WINDOWS.get(attribution_window, {})
-        
-        # Set up date range
-        if date_preset:
-            time_range_params = {"date_preset": date_preset}
-        else:
-            # Default to last 30 days
-            end_date = datetime.now()
-            start_date = end_date - timedelta(days=30)
-            time_range_params = {
-                "time_range": json.dumps({
-                    "since": start_date.strftime("%Y-%m-%d"),
-                    "until": end_date.strftime("%Y-%m-%d")
-                })
-            }
-        
-        base_params = {
-            "level": level,
+        """Get insights with date range filtering"""
+        params = {
             "fields": ",".join(fields),
-            "limit": 1000,
-            "time_increment": time_increment,
-            **time_range_params,
-            **attribution_settings
+            "level": level,
+            "time_range": {"since": "2024-01-01", "until": "2024-11-17"},  # Adjust date range as needed
+            "limit": 100  # Reduced from 500 to avoid rate limits
         }
-
-        try:
-            return self.make_request(endpoint, base_params)
-        except Exception as e:
-            self.logger.error(f"Error fetching insights for {object_id}: {str(e)}")
-            return []
+        
+        if attribution_window in ATTRIBUTION_WINDOWS:
+            params.update(ATTRIBUTION_WINDOWS[attribution_window])
+        
+        endpoint = f"{object_id}/insights"
+        return self.make_request(endpoint, params)
 
     def batch_request(
         self,
